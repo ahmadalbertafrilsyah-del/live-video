@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrameStream 16:9 — Display Video Landscape & Google Drive Autoplay</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #090d16;
+            color: #f1f5f9;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+
+        /* Strict 16:9 Stage Container */
+        .stage-16-9 {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000000;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85);
+        }
+
+        /* Fullscreen / Kiosk fallback mode when browser blocks native fullscreen in iframe */
+        .kiosk-active {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: none !important;
+            z-index: 9999 !important;
+            border-radius: 0 !important;
+            border: none !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            background: #000 !important;
+        }
+
+        .kiosk-active .stage-inner-box {
+            width: 100%;
+            height: 100%;
+            max-width: calc(100vh * (16 / 9));
+            max-height: calc(100vw * (9 / 16));
+            aspect-ratio: 16 / 9;
+            position: relative;
+        }
+
+        /* Frame Overlay Layer */
+        .frame-overlay-layer {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 20;
+            user-select: none;
+        }
+
+        /* Smooth fade transition for video change */
+        .video-layer {
+            transition: opacity 0.45s ease-in-out;
+        }
+
+        /* Hide floating kiosk controls when idle */
+        .stage-16-9 .stage-hover-ui {
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+        .stage-16-9:hover .stage-hover-ui,
+        .stage-16-9.show-controls .stage-hover-ui {
+            opacity: 1;
+        }
+
+        /* Subtle Checkerboard for Frame Preview Thumbnail */
+        .bg-checkerboard {
+            background-color: #1e293b;
+            background-image: 
+                linear-gradient(45deg, #0f172a 25%, transparent 25%), 
+                linear-gradient(-45deg, #0f172a 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #0f172a 75%), 
+                linear-gradient(-45deg, transparent 75%, #0f172a 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-indigo-500 selection:text-white">
+
+    <!-- Top Navigation Bar -->
+    <header class="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-md">
+        <div class="max-w-[1440px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+            <!-- Brand Title -->
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+                    <i class="fa-solid fa-tv text-white text-lg"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">FrameStream <span class="text-indigo-400">16:9</span></h1>
+                        <span class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            Autoplay Ready
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400 hidden sm:block">Display Video Otomatis Folder Google Drive + Custom Frame Landscape</p>
+                </div>
+            </div>
+
+            <!-- Quick Status & Primary Actions -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <!-- Sync Indicator Badge -->
+                <div id="syncStatusBadge" class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
+                    <i id="syncIcon" class="fa-brands fa-google-drive text-indigo-400"></i>
+                    <span id="syncStatusText">Mode: Playlist Bawaan</span>
+                </div>
+
+                <!-- Audio Mute/Unmute Quick Toggle -->
+                <button id="headerMuteBtn" onclick="toggleMute()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition">
+                    <i id="headerMuteIcon" class="fa-solid fa-volume-xmark"></i>
+                    <span id="headerMuteText">Suara Mati (Klik Aktifkan)</span>
+                </button>
+
+                <!-- Fullscreen / Kiosk Display Button -->
+                <button onclick="toggleFullscreenStage()" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/25 transition">
+                    <i class="fa-solid fa-expand"></i>
+                    <span>Layar Penuh</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <main class="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+        <!-- LEFT / TOP COLUMN: 16:9 Landscape Video Stage + Playback Bar (7 Cols on Desktop) -->
+        <div class="lg:col-span-7 xl:col-span-8 flex flex-col gap-4 lg:sticky lg:top-22">
+
+            <!-- Stage Header Info -->
+            <div class="flex flex-wrap items-center justify-between gap-2 px-1">
+                <div class="flex items-center gap-2">
+                    <span class="px-2.5 py-1 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-xs font-semibold flex items-center gap-1.5">
+                        <i class="fa-solid fa-panorama"></i>
+                        LANDSCAPE 16:9
+                    </span>
+                    <span id="currentVideoTitleBadge" class="text-xs sm:text-sm text-slate-300 font-medium truncate max-w-[220px] sm:max-w-md">
+                        Memuat video...
+                    </span>
+                </div>
+                <div class="flex items-center gap-3 text-xs text-slate-400">
+                    <span id="frameActiveBadge" class="flex items-center gap-1.5 text-emerald-400">
+                        <i class="fa-solid fa-layer-group"></i>
+                        <span>Frame: Event Modern</span>
+                    </span>
+                    <span>•</span>
+                    <span id="playlistCounterBadge">Video 1 / 3</span>
+                </div>
+            </div>
+
+            <!-- THE 16:9 LANDSCAPE DISPLAY STAGE -->
+            <div id="stageContainer" class="stage-16-9 rounded-2xl border border-slate-800 ring-1 ring-white/5 select-none">
+                <div class="stage-inner-box w-full h-full relative bg-black flex items-center justify-center overflow-hidden">
+
+                    <!-- LAYER 1 (BOTTOM): HTML5 Video Player (For GDrive API Streams, Direct MP4, & Local Videos) -->
+                    <video
+                        id="mainVideoPlayer"
+                        class="video-layer w-full h-full object-cover z-10"
+                        playsinline
+                        muted
+                    ></video>
+
+                    <!-- LAYER 1B (ALTERNATIVE): Google Drive Embed Iframe (Used when playing GDrive Share Links without API Key) -->
+                    <iframe
+                        id="gdriveIframePlayer"
+                        class="video-layer w-full h-full z-10 hidden border-0"
+                        allow="autoplay; fullscreen"
+                    ></iframe>
+
+                    <!-- Loading / Buffering Spinner Overlay -->
+                    <div id="videoLoadingOverlay" class=" absolute inset-0 z-15 flex flex-col items-center justify-center bg-slate-950/70 backdrop-blur-sm transition-opacity duration-300 pointer-events-none opacity-0">
+                        <div class="w-11 h-11 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                        <p id="videoLoadingText" class="text-xs sm:text-sm font-medium text-slate-200">Memuat video dari sumber...</p>
+                    </div>
+
+                    <!-- LAYER 2 (TOP): Custom Landscape Frame Overlay (Always on top of video) -->
+                    <img
+                        id="frameOverlayImg"
+                        src=""
+                        alt="Frame Landscape Overlay"
+                        class="frame-overlay-layer object-fill"
+                    />
+
+                    <!-- LAYER 3 (OPTIONAL RUNNING TEXT / MARQUEE INSIDE FRAME) -->
+                    <div id="runningTextBar" class="hidden absolute bottom-0 inset-x-0 z-25 bg-slate-950/80 backdrop-blur-md border-t border-white/10 py-1.5 px-4 pointer-events-none">
+                        <div class="overflow-hidden whitespace-nowrap">
+                            <p id="runningTextContent" class="inline-block text-xs sm:text-sm font-medium text-amber-300 tracking-wide animate-[marquee_22s_linear_infinite]">
+                                Selamat Datang — Silakan upload video terbaru ke folder Google Drive untuk ditampilkan secara otomatis pada layar ini.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Prominent Floating "Unmute" Pill (Shown when muted so user can enable sound in 1 click) -->
+                    <button
+                        id="stageUnmuteFloatingBtn"
+                        onclick="toggleMute()"
+                        class="stage-hover-ui absolute top-4 left-4 z-30 flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-950/85 hover:bg-indigo-600 text-white text-xs font-semibold border border-white/15 shadow-xl backdrop-blur-md transition"
+                    >
+                        <i class="fa-solid fa-volume-xmark text-amber-400"></i>
+                        <span>Klik untuk Aktifkan Suara</span>
+                    </button>
+
+                    <!-- Floating Stage Controls (Visible on Hover in Normal & Fullscreen Mode) -->
+                    <div class="stage-hover-ui absolute bottom-4 right-4 z-30 flex items-center gap-2">
+                        <button onclick="playPreviousVideo()" title="Video Sebelumnya" class="w-9 h-9 rounded-xl bg-slate-950/80 hover:bg-slate-800 text-white border border-white/15 flex items-center justify-center backdrop-blur-md transition">
+                            <i class="fa-solid fa-backward-step text-xs"></i>
+                        </button>
+                        <button onclick="togglePlayPause()" title="Putar / Jeda" class="w-9 h-9 rounded-xl bg-slate-950/80 hover:bg-slate-800 text-white border border-white/15 flex items-center justify-center backdrop-blur-md transition">
+                            <i id="stagePlayPauseIcon" class="fa-solid fa-pause text-xs"></i>
+                        </button>
+                        <button onclick="playNextVideo()" title="Video Berikutnya" class="w-9 h-9 rounded-xl bg-slate-950/80 hover:bg-slate-800 text-white border border-white/15 flex items-center justify-center backdrop-blur-md transition">
+                            <i class="fa-solid fa-forward-step text-xs"></i>
+                        </button>
+                        <button onclick="toggleFullscreenStage()" title="Mode Layar Penuh / Keluar" class="px-3.5 h-9 rounded-xl bg-indigo-600/90 hover:bg-indigo-500 text-white font-semibold text-xs border border-white/15 flex items-center gap-1.5 backdrop-blur-md transition">
+                            <i id="stageFullscreenIcon" class="fa-solid fa-expand"></i>
+                            <span id="stageFullscreenText">Fullscreen</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Control Bar Below Stage -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
+                <!-- Left: Playback Controls -->
+                <div class="flex items-center gap-2">
+                    <button onclick="playPreviousVideo()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition" title="Video Sebelumnya">
+                        <i class="fa-solid fa-backward-step"></i>
+                    </button>
+                    <button id="mainPlayPauseBtn" onclick="togglePlayPause()" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm flex items-center gap-2 transition shadow-md shadow-indigo-600/20">
+                        <i id="mainPlayPauseIcon" class="fa-solid fa-pause"></i>
+                        <span id="mainPlayPauseText">Berjalan</span>
+                    </button>
+                    <button onclick="playNextVideo()" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition" title="Video Selanjutnya">
+                        <i class="fa-solid fa-forward-step"></i>
+                    </button>
+
+                    <div class="h-6 w-px bg-slate-800 mx-1"></div>
+
+                    <!-- Video Fit Mode -->
+                    <div class="flex items-center gap-1.5 text-xs">
+                        <span class="text-slate-400 hidden sm:inline">Skala Video:</span>
+                        <select id="videoFitSelect" onchange="changeVideoFit(this.value)" class="bg-slate-800 border border-slate-700 text-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                            <option value="object-cover">Penuh 16:9 (Cover)</option>
+                            <option value="object-contain">Utuh Sesuai Asli (Contain)</option>
+                            <option value="object-fill">Rentangkan (Stretch)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Right: Loop & Frame Quick Opacity -->
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- Frame Scale Mode -->
+                    <div class="flex items-center gap-1.5 text-xs">
+                        <span class="text-slate-400">Posisi Frame:</span>
+                        <select id="frameFitSelect" onchange="changeFrameFit(this.value)" class="bg-slate-800 border border-slate-700 text-slate-200 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                            <option value="object-fill">Pas 16:9 (Rekomendasi)</option>
+                            <option value="object-contain">Proporsional (Contain)</option>
+                            <option value="object-cover">Potong Penuh (Cover)</option>
+                        </select>
+                    </div>
+
+                    <!-- Toggle Running Text -->
+                    <button id="toggleRunningTextBtn" onclick="toggleRunningText()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition">
+                        <i class="fa-solid fa-scroll text-indigo-400"></i>
+                        <span>Teks Berjalan: Off</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Active Playlist Queue Card -->
+            <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5">
+                <div class="flex items-center justify-between gap-2 mb-3">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                            <i class="fa-solid fa-list-ol text-sm"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-sm font-bold text-white">Antrean Video Otomatis (Playlist)</h2>
+                            <p id="playlistSourceSubtext" class="text-xs text-slate-400">Video berputar berurutan dan otomatis mengulang dari awal (Looping)</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button id="manualRefreshDriveBtn" onclick="syncGoogleDriveFolder(true)" class="hidden px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold items-center gap-1.5 transition">
+                            <i class="fa-solid fa-rotate"></i>
+                            <span>Cek Video Baru</span>
+                        </button>
+                        <span id="totalVideosPill" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs font-semibold">3 Video</span>
+                    </div>
+                </div>
+
+                <!-- Playlist Items List -->
+                <div id="playlistContainer" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Frame Upload & Google Drive Source Configuration (5 Cols on Desktop) -->
+        <div class="lg:col-span-5 xl:col-span-4 flex flex-col gap-6">
+
+            <!-- SECTION 1: UPLOAD FRAME LANDSCAPE (16:9) -->
+            <section class="bg-slate-900/95 border border-slate-800 rounded-2xl p-5 shadow-xl">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+                            <i class="fa-regular fa-image"></i>
+                        </div>
+                        <div>
+                            <h2 class="text-base font-bold text-white">1. Upload Frame Landscape</h2>
+                            <p class="text-xs text-slate-400">Format PNG Transparan / WebP (Rasio 16:9)</p>
+                        </div>
+                    </div>
+                    <button onclick="downloadTemplateFrameGuide()" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1" title="Unduh contoh kanvas 1920x1080 transparan">
+                        <i class="fa-solid fa-download"></i>
+                        <span>Template 16:9</span>
+                    </button>
+                </div>
+
+                <!-- Drag and Drop Frame Upload Box -->
+                <label
+                    id="frameDropZone"
+                    for="frameFileInput"
+                    class="group relative flex flex-col items-center justify-center p-5 border-2 border-dashed border-slate-700 hover:border-emerald-400 rounded-2xl bg-slate-950/60 hover:bg-slate-900/80 cursor-pointer transition text-center"
+                >
+                    <input
+                        id="frameFileInput"
+                        type="file"
+                        accept="image/png,image/webp,image/svg+xml,image/jpeg"
+                        class="hidden"
+                        onchange="handleFrameUpload(event)"
+                    />
+
+                    <!-- Thumbnail Preview inside Dropzone -->
+                    <div class="w-44 aspect-video rounded-lg overflow-hidden border border-slate-700 bg-checkerboard mb-3 relative flex items-center justify-center shadow-inner">
+                        <img id="frameThumbnailPreview" src="" alt="Preview Frame" class="w-full h-full object-fill" />
+                        <span class="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-slate-950/80 text-[10px] font-semibold text-emerald-400 border border-white/10">
+                            16:9
+                        </span>
+                    </div>
+
+                    <p class="text-xs sm:text-sm font-semibold text-slate-200 group-hover:text-emerald-300 transition">
+                        <i class="fa-solid fa-cloud-arrow-up mr-1 text-emerald-400"></i>
+                        Klik atau Tarik File Frame ke Sini
+                    </p>
+                    <p class="text-[11px] text-slate-400 mt-1">
+                        Gunakan file <strong>.PNG transparan</strong> ukuran <strong>1920×1080 px</strong> atau <strong>1280×720 px</strong> (Landscape)
+                    </p>
+                </label>
+
+                <!-- Frame Resolution & Orientation Check Alert -->
+                <div id="frameInfoAlert" class="hidden mt-3 px-3.5 py-2.5 rounded-xl text-xs flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                        <i id="frameInfoIcon" class="fa-solid fa-circle-check"></i>
+                        <span id="frameInfoText">Resolusi Frame: 1920 x 1080 px (Landscape 16:9)</span>
+                    </div>
+                </div>
+
+                <!-- Built-in Preset Frames Selector -->
+                <div class="mt-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-semibold text-slate-300">Atau Pilih Preset Frame Landscape Siap Pakai:</span>
+                        <button id="clearSavedFrameBtn" onclick="clearSavedCustomFrame()" class="hidden text-[11px] text-rose-400 hover:underline">
+                            Hapus Frame Tersimpan
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="applyPresetFrame('event')" id="presetBtn-event" class="preset-frame-btn px-2.5 py-2 rounded-xl border border-indigo-500 bg-indigo-500/15 text-xs font-medium text-white flex flex-col items-center gap-1 transition">
+                            <i class="fa-solid fa-wand-magic-sparkles text-indigo-400"></i>
+                            <span>Event Modern</span>
+                        </button>
+                        <button onclick="applyPresetFrame('gold')" id="presetBtn-gold" class="preset-frame-btn px-2.5 py-2 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 text-xs font-medium text-slate-300 flex flex-col items-center gap-1 transition">
+                            <i class="fa-solid fa-crown text-amber-400"></i>
+                            <span>Gold Gala</span>
+                        </button>
+                        <button onclick="applyPresetFrame('broadcast')" id="presetBtn-broadcast" class="preset-frame-btn px-2.5 py-2 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 text-xs font-medium text-slate-300 flex flex-col items-center gap-1 transition">
+                            <i class="fa-solid fa-tower-broadcast text-rose-400"></i>
+                            <span>Live TV</span>
+                        </button>
+                        <button onclick="applyPresetFrame('neon')" id="presetBtn-neon" class="preset-frame-btn px-2.5 py-2 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 text-xs font-medium text-slate-300 flex flex-col items-center gap-1 transition">
+                            <i class="fa-solid fa-bolt text-cyan-400"></i>
+                            <span>Cyber Neon</span>
+                        </button>
+                        <button onclick="applyPresetFrame('cinema')" id="presetBtn-cinema" class="preset-frame-btn px-2.5 py-2 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 text-xs font-medium text-slate-300 flex flex-col items-center gap-1 transition">
+                            <i class="fa-solid fa-film text-slate-300"></i>
+                            <span>Minimalis</span>
+                        </button>
+                        <button onclick="applyPresetFrame('none')" id="presetBtn-none" class="preset-frame-btn px-2.5 py-2 rounded-xl border border-slate-800 bg-slate-950/70 hover:border-slate-700 text-xs font-medium text-slate-300 flex flex-col items-center gap-1 transition">
+                            <i class="fa-solid fa-ban text-slate-400"></i>
+                            <span>Tanpa Frame</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Optional Custom Event Title on Preset Frame / Running Text Input -->
+                <div class="mt-4 pt-3 border-t border-slate-800/80">
+                    <label class="block text-xs font-medium text-slate-300 mb-1.5">
+                        Judul Acara / Teks Berjalan (Opsional):
+                    </label>
+                    <div class="flex gap-2">
+                        <input
+                            id="customBannerTextInput"
+                            type="text"
+                            placeholder="Contoh: Grand Launching & Gala Dinner 2026"
+                            value="LIVE DISPLAY EVENT 2026"
+                            class="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                        />
+                        <button onclick="updateFrameAndTickerText()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-indigo-300 transition">
+                            Terapkan
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SECTION 2: SUMBER VIDEO GOOGLE DRIVE & LOKAL -->
+            <section class="bg-slate-900/95 border border-slate-800 rounded-2xl p-5 shadow-xl">
+                <div class="flex items-center gap-2.5 mb-4">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+                        <i class="fa-brands fa-google-drive"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base font-bold text-white">2. Sumber Video Otomatis</h2>
+                        <p class="text-xs text-slate-400">Hubungkan Folder Google Drive atau Upload Lokal</p>
+                    </div>
+                </div>
+
+                <!-- Source Mode Tabs -->
+                <div class="grid grid-cols-3 gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 mb-4">
+                    <button
+                        id="tabBtn-folder"
+                        onclick="switchSourceTab('folder')"
+                        class="source-tab-btn py-2 px-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition flex items-center justify-center gap-1.5"
+                    >
+                        <i class="fa-solid fa-folder-open"></i>
+                        <span>Folder GDrive</span>
+                    </button>
+                    <button
+                        id="tabBtn-links"
+                        onclick="switchSourceTab('links')"
+                        class="source-tab-btn py-2 px-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5"
+                    >
+                        <i class="fa-solid fa-link"></i>
+                        <span>Link GDrive</span>
+                    </button>
+                    <button
+                        id="tabBtn-local"
+                        onclick="switchSourceTab('local')"
+                        class="source-tab-btn py-2 px-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5"
+                    >
+                        <i class="fa-solid fa-hard-drive"></i>
+                        <span>Folder Lokal</span>
+                    </button>
+                </div>
+
+                <!-- TAB 1: FOLDER GOOGLE DRIVE (AUTO-SYNC ALL VIDEOS IN FOLDER) -->
+                <div id="tabPanel-folder" class="space-y-3.5">
+                    <div class="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-200 leading-relaxed">
+                        <i class="fa-solid fa-bolt text-indigo-400 mr-1"></i>
+                        <strong>Otomatis Baca Folder:</strong> Setiap kali Anda mengupload video baru ke folder Google Drive, website akan otomatis mendeteksi dan memutarnya di dalam frame.
+                    </div>
+
+                    <!-- Input: Link / ID Folder Google Drive -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">
+                            Link Folder Google Drive atau Folder ID
+                        </label>
+                        <input
+                            id="gdriveFolderInput"
+                            type="text"
+                            placeholder="https://drive.google.com/drive/folders/1A2B3C4D5E6F..."
+                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+
+                    <!-- Input: Google Drive API Key -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="text-xs font-semibold text-slate-300">
+                                Google Drive API Key
+                            </label>
+                            <button onclick="toggleApiKeyGuide()" class="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1">
+                                <i class="fa-regular fa-circle-question"></i>
+                                <span>Cara Buat API Key (Gratis)</span>
+                            </button>
+                        </div>
+                        <input
+                            id="gdriveApiKeyInput"
+                            type="password"
+                            placeholder="AIzaSyB1234567890abcdefghijklmnop..."
+                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        />
+                    </div>
+
+                    <!-- Collapsible Step-by-Step Guide for Google Drive Folder Setup -->
+                    <div id="apiKeyGuideBox" class="hidden p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2 text-slate-300">
+                        <p class="font-bold text-white flex items-center gap-1.5">
+                            <i class="fa-brands fa-google-drive text-emerald-400"></i>
+                            Panduan Singkat Koneksi Folder Google Drive:
+                        </p>
+                        <ol class="list-decimal list-inside space-y-1.5 text-[11px] text-slate-300 leading-relaxed">
+                            <li>Buka Google Drive, klik kanan pada folder video Anda &rarr; <strong>Bagikan (Share)</strong> &rarr; Ubah akses menjadi <strong>"Siapa saja yang memiliki link" (Anyone with the link)</strong>.</li>
+                            <li>Salin link folder tersebut dan tempel pada kolom di atas.</li>
+                            <li>Agar website bisa membaca isi folder secara otomatis & memutar video kualitas asli tanpa tombol klik manual, buat <strong>API Key gratis</strong> di <span class="text-indigo-400 underline">console.cloud.google.com</span>:
+                                <ul class="list-disc list-inside pl-3 mt-1 text-slate-400">
+                                    <li>Buat Project baru &rarr; Buka menu <strong>APIs & Services &rarr; Library</strong>.</li>
+                                    <li>Cari & aktifkan <strong>Google Drive API</strong>.</li>
+                                    <li>Buka menu <strong>Credentials &rarr; Create Credentials &rarr; API Key</strong>, lalu salin ke kolom di atas.</li>
+                                </ul>
+                            </li>
+                        </ol>
+                        <p class="text-[11px] text-amber-300 pt-1">
+                            *Tips: Belum punya API Key? Anda bisa menggunakan tab <strong>"Link GDrive"</strong> atau <strong>"Folder Lokal"</strong>, atau klik tombol <strong>Simulasi Folder GDrive</strong> di bawah.
+                        </p>
+                    </div>
+
+                    <!-- Auto Refresh Interval Setting -->
+                    <div class="flex items-center justify-between gap-2 pt-1">
+                        <label class="text-xs text-slate-300 font-medium">Cek Video Baru Otomatis:</label>
+                        <select id="gdriveAutoSyncSelect" onchange="updateAutoSyncTimer()" class="bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500">
+                            <option value="60000">Setiap 1 Menit</option>
+                            <option value="30000">Setiap 30 Detik</option>
+                            <option value="300000">Setiap 5 Menit</option>
+                            <option value="0">Hanya Saat Diklik</option>
+                        </select>
+                    </div>
+
+                    <!-- Connect & Simulate Buttons -->
+                    <div class="pt-1 flex flex-col gap-2">
+                        <button
+                            onclick="syncGoogleDriveFolder(false)"
+                            class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs sm:text-sm shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition"
+                        >
+                            <i class="fa-solid fa-cloud-bolt"></i>
+                            <span>Hubungkan & Putar Folder Google Drive</span>
+                        </button>
+
+                        <button
+                            onclick="simulateGoogleDriveFolderSync()"
+                            class="w-full py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-800 text-slate-300 hover:text-white font-medium text-xs border border-slate-700/80 flex items-center justify-center gap-1.5 transition"
+                        >
+                            <i class="fa-solid fa-flask text-amber-400"></i>
+                            <span>Uji Coba Simulasi Auto-Sync Folder GDrive</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- TAB 2: LINK FILE GOOGLE DRIVE / URL MP4 (TANPA API KEY) -->
+                <div id="tabPanel-links" class="hidden space-y-3.5">
+                    <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200 leading-relaxed">
+                        <i class="fa-solid fa-link text-amber-400 mr-1"></i>
+                        <strong>Tanpa API Key:</strong> Tempel satu atau beberapa link bagikan video Google Drive (<code>drive.google.com/file/d/...</code>) atau link langsung <code>.mp4</code> (satu link per baris).
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 mb-1">
+                            Daftar Link Video Google Drive / Direct MP4 (1 per baris)
+                        </label>
+                        <textarea
+                            id="gdriveLinksTextarea"
+                            rows="4"
+                            placeholder="https://drive.google.com/file/d/1xYzAbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing&#10;https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+                            class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+                        ></textarea>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2">
+                        <label class="text-xs text-slate-300">Durasi Putar per Link Embed GDrive:</label>
+                        <select id="iframeDurationSelect" class="bg-slate-950 border border-slate-800 text-slate-200 rounded-xl px-2.5 py-1.5 text-xs">
+                            <option value="30">30 Detik</option>
+                            <option value="60" selected>1 Menit</option>
+                            <option value="180">3 Menit</option>
+                            <option value="300">5 Menit</option>
+                        </select>
+                    </div>
+
+                    <button
+                        onclick="loadVideosFromLinks()"
+                        class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs sm:text-sm shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition"
+                    >
+                        <i class="fa-solid fa-circle-play"></i>
+                        <span>Muat & Putar Daftar Link Video</span>
+                    </button>
+                </div>
+
+                <!-- TAB 3: UPLOAD FOLDER / FILE VIDEO LOKAL (OFFLINE & CEPAT) -->
+                <div id="tabPanel-local" class="hidden space-y-3.5">
+                    <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-200 leading-relaxed">
+                        <i class="fa-solid fa-bolt text-emerald-400 mr-1"></i>
+                        <strong>Tips Google Drive Desktop / Lokal:</strong> Jika Anda menginstal aplikasi <em>Google Drive for Desktop</em> di laptop/PC, Anda bisa memilih langsung folder Google Drive tersebut di bawah ini tanpa perlu internet/API Key!
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <!-- Select Multiple Video Files -->
+                        <label class="flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-slate-700 hover:border-indigo-400 bg-slate-950/70 hover:bg-slate-900 cursor-pointer text-center transition">
+                            <input
+                                type="file"
+                                accept="video/mp4,video/webm,video/ogg,video/quicktime"
+                                multiple
+                                class="hidden"
+                                onchange="handleLocalVideoFiles(event)"
+                            />
+                            <i class="fa-solid fa-file-video text-2xl text-indigo-400 mb-1.5"></i>
+                            <span class="text-xs font-bold text-white">Pilih File Video</span>
+                            <span class="text-[11px] text-slate-400 mt-0.5">Bisa pilih banyak file .MP4</span>
+                        </label>
+
+                        <!-- Select Entire Folder -->
+                        <label class="flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-slate-700 hover:border-emerald-400 bg-slate-950/70 hover:bg-slate-900 cursor-pointer text-center transition">
+                            <input
+                                type="file"
+                                webkitdirectory
+                                directory
+                                multiple
+                                class="hidden"
+                                onchange="handleLocalVideoFiles(event)"
+                            />
+                            <i class="fa-solid fa-folder-tree text-2xl text-emerald-400 mb-1.5"></i>
+                            <span class="text-xs font-bold text-white">Pilih 1 Folder Penuh</span>
+                            <span class="text-[11px] text-slate-400 mt-0.5">Otomatis putar isi folder</span>
+                        </label>
+                    </div>
+
+                    <button
+                        onclick="loadDefaultSampleVideos()"
+                        class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition flex items-center justify-center gap-1.5"
+                    >
+                        <i class="fa-solid fa-rotate-left"></i>
+                        <span>Kembalikan ke Video Contoh Bawaan</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // ==========================================
+        // 1. STATE & INITIAL CONFIGURATION
+        // ==========================================
+        const DEFAULT_SAMPLE_VIDEOS = [
+            {
+                id: 'sample-1',
+                name: 'Cinematic Nature Landscape (Sample 1).mp4',
+                url: '',
+                sceneTheme: 'aurora',
+                type: 'canvas-stream',
+                sourceLabel: 'Sample HD 16:9'
+            },
+            {
+                id: 'sample-2',
+                name: 'Coastal Escape Aerial 16:9 (Sample 2).mp4',
+                url: '',
+                sceneTheme: 'ocean',
+                type: 'canvas-stream',
+                sourceLabel: 'Sample HD 16:9'
+            },
+            {
+                id: 'sample-3',
+                name: 'Joyrides Event Showcase (Sample 3).mp4',
+                url: '',
+                sceneTheme: 'gala',
+                type: 'canvas-stream',
+                sourceLabel: 'Sample HD 16:9'
+            }
+        ];
+
+        let playlist = [...DEFAULT_SAMPLE_VIDEOS];
+        let currentIndex = 0;
+        let isMuted = true;
+        let isRunningTextVisible = false;
+        let activePresetName = 'event';
+        let customBannerTitle = 'LIVE DISPLAY EVENT 2026';
+        let gdriveAutoSyncIntervalId = null;
+        let iframeAutoNextTimeoutId = null;
+        let idleMouseTimeoutId = null;
+
+        // Built-in 16:9 Canvas Video Stream Engine (Prevents NotSupportedError & works offline/in-sandbox)
+        let synthCanvas = null;
+        let synthCtx = null;
+        let synthAnimFrameId = null;
+        let synthStream = null;
+        let synthStartTime = 0;
+
+        // DOM References
+        const stageContainer = document.getElementById('stageContainer');
+        const mainVideoPlayer = document.getElementById('mainVideoPlayer');
+        const gdriveIframePlayer = document.getElementById('gdriveIframePlayer');
+        const frameOverlayImg = document.getElementById('frameOverlayImg');
+        const frameThumbnailPreview = document.getElementById('frameThumbnailPreview');
+        const videoLoadingOverlay = document.getElementById('videoLoadingOverlay');
+        const videoLoadingText = document.getElementById('videoLoadingText');
+
+        // ==========================================
+        // 2. BUILT-IN 16:9 TRANSPARENT SVG FRAMES
+        // ==========================================
+        function generatePresetFrameDataUrl(presetKey, bannerText = 'LIVE DISPLAY EVENT 2026') {
+            const safeTitle = (bannerText || 'LIVE DISPLAY EVENT 2026')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+
+            if (presetKey === 'none') {
+                // 1x1 transparent SVG
+                return 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080"></svg>');
+            }
+
+            let svgContent = '';
+
+            if (presetKey === 'event') {
+                svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+                    <defs>
+                        <linearGradient id="gradEvent" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#6366f1"/>
+                            <stop offset="50%" stop-color="#06b6d4"/>
+                            <stop offset="100%" stop-color="#8b5cf6"/>
+                        </linearGradient>
+                        <linearGradient id="darkGlass" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#090d16" stop-opacity="0.92"/>
+                            <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.88"/>
+                        </linearGradient>
+                    </defs>
+                    <!-- Outer 16:9 Border -->
+                    <rect x="0" y="0" width="1920" height="1080" fill="none" stroke="url(#gradEvent)" stroke-width="32"/>
+                    <!-- Inner Fine Line -->
+                    <rect x="28" y="28" width="1864" height="1024" rx="18" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="3"/>
+                    <!-- Corner Accents -->
+                    <path d="M 24 120 L 24 24 L 120 24" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
+                    <path d="M 1896 120 L 1896 24 L 1800 24" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
+                    <path d="M 24 960 L 24 1056 L 120 1056" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
+                    <path d="M 1896 960 L 1896 1056 L 1800 1056" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round"/>
+                    <!-- Top Right Badge -->
+                    <g transform="translate(1570, 46)">
+                        <rect x="0" y="0" width="290" height="54" rx="27" fill="url(#darkGlass)" stroke="url(#gradEvent)" stroke-width="2.5"/>
+                        <circle cx="32" cy="27" r="8" fill="#10b981"/>
+                        <text x="54" y="34" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="21" letter-spacing="1.5">OFFICIAL DISPLAY</text>
+                    </g>
+                    <!-- Bottom Left Lower-Third Banner -->
+                    <g transform="translate(56, 956)">
+                        <rect x="0" y="0" width="760" height="68" rx="16" fill="url(#darkGlass)" stroke="url(#gradEvent)" stroke-width="2.5"/>
+                        <rect x="16" y="14" width="8" height="40" rx="4" fill="#38bdf8"/>
+                        <text x="40" y="43" fill="#f8fafc" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="26" letter-spacing="1">${safeTitle}</text>
+                    </g>
+                </svg>`;
+            } else if (presetKey === 'gold') {
+                svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+                    <defs>
+                        <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#fef08a"/>
+                            <stop offset="35%" stop-color="#eab308"/>
+                            <stop offset="70%" stop-color="#ca8a04"/>
+                            <stop offset="100%" stop-color="#fde047"/>
+                        </linearGradient>
+                    </defs>
+                    <rect x="0" y="0" width="1920" height="1080" fill="none" stroke="#090d16" stroke-width="44"/>
+                    <rect x="22" y="22" width="1876" height="1036" fill="none" stroke="url(#goldGrad)" stroke-width="10"/>
+                    <rect x="38" y="38" width="1844" height="1004" fill="none" stroke="url(#goldGrad)" stroke-width="2" stroke-dasharray="14 8"/>
+                    <!-- Ornate Corner Diamonds -->
+                    <polygon points="22,22 95,22 22,95" fill="url(#goldGrad)"/>
+                    <polygon points="1898,22 1825,22 1898,95" fill="url(#goldGrad)"/>
+                    <polygon points="22,1058 95,1058 22,985" fill="url(#goldGrad)"/>
+                    <polygon points="1898,1058 1825,1058 1898,985" fill="url(#goldGrad)"/>
+                    <!-- Bottom Center Luxury Plate -->
+                    <g transform="translate(560, 976)">
+                        <rect x="0" y="0" width="800" height="64" rx="32" fill="#090d16" fill-opacity="0.9" stroke="url(#goldGrad)" stroke-width="3"/>
+                        <text x="400" y="41" text-anchor="middle" fill="#fef08a" font-family="Georgia, serif" font-weight="bold" font-size="26" letter-spacing="3">${safeTitle}</text>
+                    </g>
+                </svg>`;
+            } else if (presetKey === 'broadcast') {
+                svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+                    <!-- Top Left LIVE Pill -->
+                    <g transform="translate(48, 42)">
+                        <rect x="0" y="0" width="130" height="48" rx="8" fill="#e11d48"/>
+                        <circle cx="28" cy="24" r="7" fill="#ffffff"/>
+                        <text x="48" y="32" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="22" letter-spacing="1.5">LIVE</text>
+                        <rect x="140" y="0" width="210" height="48" rx="8" fill="#0f172a" fill-opacity="0.85"/>
+                        <text x="245" y="31" text-anchor="middle" fill="#e2e8f0" font-family="Inter, Arial, sans-serif" font-weight="600" font-size="19">HD 1080P 16:9</text>
+                    </g>
+                    <!-- Broadcast Lower Third -->
+                    <g transform="translate(48, 920)">
+                        <path d="M 0 0 L 920 0 L 890 88 L 0 88 Z" fill="#0f172a" fill-opacity="0.92"/>
+                        <path d="M 0 0 L 18 0 L 18 88 L 0 88 Z" fill="#e11d48"/>
+                        <text x="42" y="38" fill="#fb7185" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="18" letter-spacing="2">GOOGLE DRIVE STREAMING CHANNEL</text>
+                        <text x="42" y="70" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="28">${safeTitle}</text>
+                    </g>
+                    <!-- Subtle Outer Frame -->
+                    <rect x="0" y="0" width="1920" height="1080" fill="none" stroke="#1e293b" stroke-width="16"/>
+                </svg>`;
+            } else if (presetKey === 'neon') {
+                svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+                    <defs>
+                        <linearGradient id="cyberGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#06b6d4"/>
+                            <stop offset="50%" stop-color="#ec4899"/>
+                            <stop offset="100%" stop-color="#8b5cf6"/>
+                        </linearGradient>
+                    </defs>
+                    <rect x="0" y="0" width="1920" height="1080" fill="none" stroke="#090d16" stroke-width="28"/>
+                    <rect x="18" y="18" width="1884" height="1044" fill="none" stroke="url(#cyberGrad)" stroke-width="8"/>
+                    <!-- Cyber HUD Corners -->
+                    <polyline points="36,160 36,36 220,36" fill="none" stroke="#22d3ee" stroke-width="8"/>
+                    <polyline points="1884,160 1884,36 1700,36" fill="none" stroke="#f472b6" stroke-width="8"/>
+                    <polyline points="36,920 36,1044 220,1044" fill="none" stroke="#f472b6" stroke-width="8"/>
+                    <polyline points="1884,920 1884,1044 1700,1044" fill="none" stroke="#22d3ee" stroke-width="8"/>
+                    <!-- Top Center HUD Header -->
+                    <g transform="translate(610, 14)">
+                        <polygon points="0,0 700,0 660,54 40,54" fill="#090d16" fill-opacity="0.9" stroke="url(#cyberGrad)" stroke-width="3"/>
+                        <text x="350" y="36" text-anchor="middle" fill="#22d3ee" font-family="Inter, monospace" font-weight="800" font-size="22" letter-spacing="3">${safeTitle}</text>
+                    </g>
+                </svg>`;
+            } else if (presetKey === 'cinema') {
+                svgContent = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+                    <rect x="0" y="0" width="1920" height="1080" fill="none" stroke="#090d16" stroke-width="48"/>
+                    <rect x="32" y="32" width="1856" height="1016" rx="12" fill="none" stroke="#f8fafc" stroke-opacity="0.6" stroke-width="3"/>
+                </svg>`;
+            }
+
+            return 'data:image/svg+xml;utf8,' + encodeURIComponent(svgContent.trim());
+        }
+
+        // Apply built-in preset frame
+        function applyPresetFrame(presetKey) {
+            activePresetName = presetKey;
+            const titleText = document.getElementById('customBannerTextInput').value.trim() || 'LIVE DISPLAY EVENT 2026';
+            const dataUrl = generatePresetFrameDataUrl(presetKey, titleText);
+
+            frameOverlayImg.src = dataUrl;
+            frameThumbnailPreview.src = dataUrl;
+
+            // Update active styling on buttons
+            document.querySelectorAll('.preset-frame-btn').forEach(btn => {
+                btn.classList.remove('border-indigo-500', 'bg-indigo-500/15', 'text-white');
+                btn.classList.add('border-slate-800', 'bg-slate-950/70', 'text-slate-300');
+            });
+            const activeBtn = document.getElementById(`presetBtn-${presetKey}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('border-slate-800', 'bg-slate-950/70', 'text-slate-300');
+                activeBtn.classList.add('border-indigo-500', 'bg-indigo-500/15', 'text-white');
+            }
+
+            const presetNames = {
+                event: 'Event Modern',
+                gold: 'Gold Gala',
+                broadcast: 'Live TV',
+                neon: 'Cyber Neon',
+                cinema: 'Minimalis',
+                none: 'Tanpa Frame'
+            };
+            document.getElementById('frameActiveBadge').innerHTML = `
+                <i class="fa-solid fa-layer-group"></i>
+                <span>Frame: ${presetNames[presetKey] || 'Custom'}</span>
+            `;
+
+            document.getElementById('frameInfoAlert').classList.add('hidden');
+        }
+
+        // Handle Custom Landscape Frame Upload (PNG/WebP/JPG)
+        function handleFrameUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const dataUrl = e.target.result;
+                const tempImg = new Image();
+                tempImg.onload = function() {
+                    const w = tempImg.naturalWidth;
+                    const h = tempImg.naturalHeight;
+                    const ratio = (w / h).toFixed(2);
+                    const isLandscape = w >= h;
+
+                    frameOverlayImg.src = dataUrl;
+                    frameThumbnailPreview.src = dataUrl;
+                    activePresetName = 'custom';
+
+                    // Reset preset button highlights
+                    document.querySelectorAll('.preset-frame-btn').forEach(btn => {
+                        btn.classList.remove('border-indigo-500', 'bg-indigo-500/15', 'text-white');
+                        btn.classList.add('border-slate-800', 'bg-slate-950/70', 'text-slate-300');
+                    });
+
+                    // Show resolution & orientation feedback
+                    const alertBox = document.getElementById('frameInfoAlert');
+                    const alertIcon = document.getElementById('frameInfoIcon');
+                    const alertText = document.getElementById('frameInfoText');
+                    alertBox.classList.remove('hidden', 'bg-emerald-500/15', 'text-emerald-300', 'border-emerald-500/30', 'bg-amber-500/15', 'text-amber-300', 'border-amber-500/30');
+                    alertBox.classList.add('border');
+
+                    if (isLandscape) {
+                        alertBox.classList.add('bg-emerald-500/15', 'text-emerald-300', 'border-emerald-500/30');
+                        alertIcon.className = 'fa-solid fa-circle-check text-emerald-400';
+                        alertText.textContent = `Frame Landscape Terpasang: ${w}×${h} px (Rasio ${ratio}:1)`;
+                        showToast(`Frame "${file.name}" (${w}×${h}) berhasil dipasang!`, 'success');
+                    } else {
+                        alertBox.classList.add('bg-amber-500/15', 'text-amber-300', 'border-amber-500/30');
+                        alertIcon.className = 'fa-solid fa-triangle-exclamation text-amber-400';
+                        alertText.textContent = `Perhatian: Frame berukuran Portrait (${w}×${h} px). Disarankan Landscape 16:9.`;
+                        showToast('Frame terpasang, namun terdeteksi format Portrait. Disarankan ukuran Landscape 16:9.', 'warning');
+                    }
+
+                    document.getElementById('frameActiveBadge').innerHTML = `
+                        <i class="fa-solid fa-image"></i>
+                        <span>Frame Custom (${w}×${h})</span>
+                    `;
+
+                    // Try saving custom frame to localStorage if size permits (< 3.5MB)
+                    try {
+                        if (dataUrl.length < 3500000) {
+                            localStorage.setItem('framestream_custom_frame', dataUrl);
+                            localStorage.setItem('framestream_custom_frame_meta', `${w}×${h}`);
+                            document.getElementById('clearSavedFrameBtn').classList.remove('hidden');
+                        }
+                    } catch (storageErr) {
+                        // Ignore quota exceeded
+                    }
+                };
+                tempImg.src = dataUrl;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearSavedCustomFrame() {
+            localStorage.removeItem('framestream_custom_frame');
+            localStorage.removeItem('framestream_custom_frame_meta');
+            document.getElementById('clearSavedFrameBtn').classList.add('hidden');
+            applyPresetFrame('event');
+            showToast('Frame custom tersimpan telah dihapus.', 'info');
+        }
+
+        function updateFrameAndTickerText() {
+            const val = document.getElementById('customBannerTextInput').value.trim() || 'LIVE DISPLAY EVENT 2026';
+            customBannerTitle = val;
+            document.getElementById('runningTextContent').textContent = `${val} — Menampilkan Video Otomatis dari Folder Google Drive.`;
+
+            if (activePresetName !== 'custom') {
+                applyPresetFrame(activePresetName);
+            }
+            showToast('Teks judul pada frame & teks berjalan diperbarui!', 'success');
+        }
+
+        // Generate & Download a 1920x1080 PNG Transparent Template Guide for Designers
+        function downloadTemplateFrameGuide() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1920;
+            canvas.height = 1080;
+            const ctx = canvas.getContext('2d');
+
+            // Clear transparent center
+            ctx.clearRect(0, 0, 1920, 1080);
+
+            // Outer Frame Border
+            const grad = ctx.createLinearGradient(0, 0, 1920, 1080);
+            grad.addColorStop(0, '#4f46e5');
+            grad.addColorStop(0.5, '#06b6d4');
+            grad.addColorStop(1, '#10b981');
+
+            ctx.lineWidth = 60;
+            ctx.strokeStyle = grad;
+            ctx.strokeRect(0, 0, 1920, 1080);
+
+            // Safe Zone Guide Corner Marks
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            ctx.fillRect(60, 930, 680, 90);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 32px Inter, Arial, sans-serif';
+            ctx.fillText('CONTOH FRAME LANDSCAPE 1920x1080 PNG', 90, 986);
+
+            const link = document.createElement('a');
+            link.download = 'Template-Frame-Landscape-1920x1080.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+            showToast('Template Frame PNG Transparan (1920×1080) berhasil diunduh!', 'success');
+        }
+
+        // ==========================================
+        // 3. VIDEO PLAYER & AUTOPLAY ENGINE
+        // ==========================================
+        function stopSynthVideoStream() {
+            if (synthAnimFrameId) {
+                cancelAnimationFrame(synthAnimFrameId);
+                synthAnimFrameId = null;
+            }
+            if (mainVideoPlayer.srcObject) {
+                mainVideoPlayer.srcObject = null;
+            }
+        }
+
+        function startSynthVideoStream(theme = 'aurora', label = 'Sample HD 16:9') {
+            stopSynthVideoStream();
+
+            if (!synthCanvas) {
+                synthCanvas = document.createElement('canvas');
+                synthCanvas.width = 1280;
+                synthCanvas.height = 720;
+                synthCtx = synthCanvas.getContext('2d');
+            }
+
+            const startTs = performance.now();
+            synthStartTime = startTs;
+
+            function renderFrame(now) {
+                const t = (now - startTs) / 1000;
+                const w = synthCanvas.width;
+                const h = synthCanvas.height;
+
+                // Animated 16:9 Landscape Background Gradient
+                const grad = synthCtx.createLinearGradient(0, 0, w, h);
+                if (theme === 'ocean') {
+                    grad.addColorStop(0, '#082f49');
+                    grad.addColorStop(0.5, '#0284c7');
+                    grad.addColorStop(1, '#0f172a');
+                } else if (theme === 'gala') {
+                    grad.addColorStop(0, '#1e1b4b');
+                    grad.addColorStop(0.5, '#78350f');
+                    grad.addColorStop(1, '#090d16');
+                } else {
+                    grad.addColorStop(0, '#0f172a');
+                    grad.addColorStop(0.5, '#312e81');
+                    grad.addColorStop(1, '#064e3b');
+                }
+                synthCtx.fillStyle = grad;
+                synthCtx.fillRect(0, 0, w, h);
+
+                // Animated Landscape Waves / Light Beams
+                for (let i = 0; i < 4; i++) {
+                    synthCtx.beginPath();
+                    const baseY = h * (0.45 + i * 0.1);
+                    synthCtx.moveTo(0, h);
+                    for (let x = 0; x <= w; x += 40) {
+                        const y = baseY + Math.sin(x * 0.004 + t * (1.2 + i * 0.3) + i) * (38 + i * 10);
+                        synthCtx.lineTo(x, y);
+                    }
+                    synthCtx.lineTo(w, h);
+                    synthCtx.closePath();
+                    synthCtx.fillStyle = theme === 'gala'
+                        ? `rgba(251, 191, 36, ${0.07 + i * 0.03})`
+                        : `rgba(56, 189, 248, ${0.07 + i * 0.03})`;
+                    synthCtx.fill();
+                }
+
+                // Floating Ambient Particles
+                for (let p = 0; p < 18; p++) {
+                    const px = ((p * 97 + t * (28 + (p % 5) * 10)) % w);
+                    const py = ((p * 61 + Math.sin(t + p) * 40) % (h * 0.8)) + 40;
+                    const radius = 3 + (p % 4) * 2;
+                    synthCtx.beginPath();
+                    synthCtx.arc(px, py, radius, 0, Math.PI * 2);
+                    synthCtx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+                    synthCtx.fill();
+                }
+
+                // Subtle Center Watermark Info for Sample Stream
+                synthCtx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                synthCtx.font = 'bold 34px Inter, sans-serif';
+                synthCtx.textAlign = 'center';
+                synthCtx.fillText(label, w / 2, h / 2 - 10);
+
+                synthCtx.fillStyle = 'rgba(148, 163, 184, 0.85)';
+                synthCtx.font = '500 20px Inter, sans-serif';
+                synthCtx.fillText('Autoplay Landscape 16:9 Stream • Siap Menampilkan Video Google Drive Anda', w / 2, h / 2 + 30);
+
+                synthAnimFrameId = requestAnimationFrame(renderFrame);
+            }
+
+            renderFrame(performance.now());
+
+            if (typeof synthCanvas.captureStream === 'function') {
+                synthStream = synthCanvas.captureStream(30);
+                mainVideoPlayer.removeAttribute('src');
+                mainVideoPlayer.srcObject = synthStream;
+                safePlayVideo();
+            } else {
+                showLoadingOverlay(false);
+            }
+
+            // Auto-advance sample canvas video after 18 seconds
+            clearTimeout(iframeAutoNextTimeoutId);
+            iframeAutoNextTimeoutId = setTimeout(() => {
+                playNextVideo();
+            }, 18000);
+        }
+
+        async function safePlayVideo() {
+            try {
+                const playPromise = mainVideoPlayer.play();
+                if (playPromise !== undefined) {
+                    await playPromise;
+                }
+                showLoadingOverlay(false);
+                updatePlayPauseUI(true);
+            } catch (err) {
+                if (!err || err.name === 'AbortError') {
+                    // Play interrupted by a new video load request; safe to ignore
+                    return;
+                }
+                if (err.name === 'NotAllowedError') {
+                    // Browser blocked unmuted autoplay -> fallback to muted autoplay safely
+                    isMuted = true;
+                    mainVideoPlayer.muted = true;
+                    updateMuteUI();
+                    try {
+                        await mainVideoPlayer.play();
+                        showLoadingOverlay(false);
+                        updatePlayPauseUI(true);
+                    } catch (retryErr) {
+                        handleUnsupportedVideoSource(retryErr);
+                    }
+                    return;
+                }
+                handleUnsupportedVideoSource(err);
+            }
+        }
+
+        function handleUnsupportedVideoSource(err) {
+            console.warn('Video source fallback triggered:', err?.message || err);
+            showLoadingOverlay(false);
+            const currentItem = playlist[currentIndex];
+
+            // If it's a Google Drive file that blocked direct stream, switch to Google Drive Embed Player
+            if (currentItem && currentItem.driveFileId && currentItem.type !== 'gdrive-iframe') {
+                currentItem.type = 'gdrive-iframe';
+                currentItem.url = `https://drive.google.com/file/d/${currentItem.driveFileId}/preview`;
+                showToast(`Mengalihkan "${currentItem.name}" ke Google Drive Preview Player...`, 'info');
+                playVideoAtIndex(currentIndex);
+                return;
+            }
+
+            // Fallback to built-in 16:9 animated stream so the frame display never stops or throws unhandled errors
+            if (currentItem) {
+                startSynthVideoStream('aurora', currentItem.name);
+            }
+        }
+
+        function playVideoAtIndex(index) {
+            if (!playlist || playlist.length === 0) return;
+
+            if (index >= playlist.length) index = 0;
+            if (index < 0) index = playlist.length - 1;
+            currentIndex = index;
+
+            const currentItem = playlist[currentIndex];
+            clearTimeout(iframeAutoNextTimeoutId);
+
+            // Update UI Badges
+            document.getElementById('currentVideoTitleBadge').textContent = currentItem.name;
+            document.getElementById('playlistCounterBadge').textContent = `Video ${currentIndex + 1} / ${playlist.length}`;
+            renderPlaylistUI();
+
+            showLoadingOverlay(true, `Memutar: ${currentItem.name}`);
+
+            if (currentItem.type === 'gdrive-iframe') {
+                // Use Google Drive Embed Iframe fallback (when no API Key is used for GDrive share link)
+                stopSynthVideoStream();
+                mainVideoPlayer.pause();
+                mainVideoPlayer.removeAttribute('src');
+                mainVideoPlayer.classList.add('hidden');
+                gdriveIframePlayer.classList.remove('hidden');
+
+                gdriveIframePlayer.src = currentItem.url;
+                setTimeout(() => showLoadingOverlay(false), 1200);
+
+                const durationSec = parseInt(document.getElementById('iframeDurationSelect')?.value || '60', 10);
+                iframeAutoNextTimeoutId = setTimeout(() => {
+                    playNextVideo();
+                }, durationSec * 1000);
+            } else if (currentItem.type === 'canvas-stream' || !currentItem.url) {
+                // Built-in 16:9 Landscape Stream (Zero external network errors)
+                gdriveIframePlayer.src = '';
+                gdriveIframePlayer.classList.add('hidden');
+                mainVideoPlayer.classList.remove('hidden');
+                mainVideoPlayer.muted = isMuted;
+
+                startSynthVideoStream(currentItem.sceneTheme || 'aurora', currentItem.name);
+            } else {
+                // Native HTML5 <video> Player (For Local Files, GDrive API Streams, & Direct MP4 URLs)
+                stopSynthVideoStream();
+                gdriveIframePlayer.src = '';
+                gdriveIframePlayer.classList.add('hidden');
+                mainVideoPlayer.classList.remove('hidden');
+
+                mainVideoPlayer.src = currentItem.url;
+                mainVideoPlayer.muted = isMuted;
+                mainVideoPlayer.loop = (playlist.length === 1);
+
+                safePlayVideo();
+            }
+        }
+
+        function playNextVideo() {
+            if (playlist.length <= 1 && mainVideoPlayer.loop && !mainVideoPlayer.srcObject) {
+                mainVideoPlayer.currentTime = 0;
+                safePlayVideo();
+                return;
+            }
+            playVideoAtIndex(currentIndex + 1);
+        }
+
+        function playPreviousVideo() {
+            playVideoAtIndex(currentIndex - 1);
+        }
+
+        function togglePlayPause() {
+            const currentItem = playlist[currentIndex];
+            if (currentItem && currentItem.type === 'gdrive-iframe') {
+                showToast('Mode Embed GDrive sedang aktif. Gunakan tombol Next untuk berpindah video.', 'info');
+                return;
+            }
+            if (mainVideoPlayer.paused) {
+                safePlayVideo();
+            } else {
+                mainVideoPlayer.pause();
+                updatePlayPauseUI(false);
+            }
+        }
+
+        function updatePlayPauseUI(isPlaying) {
+            const mainIcon = document.getElementById('mainPlayPauseIcon');
+            const mainText = document.getElementById('mainPlayPauseText');
+            const stageIcon = document.getElementById('stagePlayPauseIcon');
+
+            if (isPlaying) {
+                mainIcon.className = 'fa-solid fa-pause';
+                mainText.textContent = 'Berjalan';
+                stageIcon.className = 'fa-solid fa-pause text-xs';
+            } else {
+                mainIcon.className = 'fa-solid fa-play';
+                mainText.textContent = 'Dijeda';
+                stageIcon.className = 'fa-solid fa-play text-xs';
+            }
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            mainVideoPlayer.muted = isMuted;
+            updateMuteUI();
+
+            if (!isMuted) {
+                showToast('Suara video diaktifkan!', 'success');
+            } else {
+                showToast('Suara video dibisukan (Muted).', 'info');
+            }
+        }
+
+        function updateMuteUI() {
+            const headerBtn = document.getElementById('headerMuteBtn');
+            const headerIcon = document.getElementById('headerMuteIcon');
+            const headerText = document.getElementById('headerMuteText');
+            const floatingBtn = document.getElementById('stageUnmuteFloatingBtn');
+
+            if (isMuted) {
+                headerBtn.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition';
+                headerIcon.className = 'fa-solid fa-volume-xmark';
+                headerText.textContent = 'Suara Mati (Klik Aktifkan)';
+                floatingBtn.classList.remove('hidden');
+            } else {
+                headerBtn.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition';
+                headerIcon.className = 'fa-solid fa-volume-high';
+                headerText.textContent = 'Suara Aktif';
+                floatingBtn.classList.add('hidden');
+            }
+        }
+
+        // Video player event listeners
+        mainVideoPlayer.addEventListener('ended', () => {
+            playNextVideo();
+        });
+
+        mainVideoPlayer.addEventListener('waiting', () => {
+            showLoadingOverlay(true, 'Memuat buffer video...');
+        });
+
+        mainVideoPlayer.addEventListener('playing', () => {
+            showLoadingOverlay(false);
+            updatePlayPauseUI(true);
+        });
+
+        mainVideoPlayer.addEventListener('error', () => {
+            // Only handle if there is an actual src attribute set
+            if (!mainVideoPlayer.getAttribute('src')) return;
+            handleUnsupportedVideoSource(mainVideoPlayer.error);
+        });
+
+        function showLoadingOverlay(show, message = 'Memuat video...') {
+            videoLoadingText.textContent = message;
+            if (show) {
+                videoLoadingOverlay.classList.remove('opacity-0');
+                videoLoadingOverlay.classList.add('opacity-100');
+            } else {
+                videoLoadingOverlay.classList.remove('opacity-100');
+                videoLoadingOverlay.classList.add('opacity-0');
+            }
+        }
+
+        // ==========================================
+        // 4. GOOGLE DRIVE FOLDER AUTO-SYNC ENGINE
+        // ==========================================
+        function extractDriveFolderId(input) {
+            if (!input) return '';
+            const trimmed = input.trim();
+            // Match /folders/FOLDER_ID
+            const folderMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+            if (folderMatch && folderMatch[1]) return folderMatch[1];
+            // Match id=FOLDER_ID
+            const idMatch = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (idMatch && idMatch[1]) return idMatch[1];
+            // Otherwise assume raw Folder ID
+            return trimmed;
+        }
+
+        function extractDriveFileId(input) {
+            if (!input) return null;
+            const match1 = input.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+            if (match1 && match1[1]) return match1[1];
+            const match2 = input.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (match2 && match2[1]) return match2[1];
+            return null;
+        }
+
+        async function syncGoogleDriveFolder(isBackgroundCheck = false) {
+            const rawFolder = document.getElementById('gdriveFolderInput').value.trim();
+            const apiKey = document.getElementById('gdriveApiKeyInput').value.trim();
+            const folderId = extractDriveFolderId(rawFolder);
+
+            if (!folderId) {
+                if (!isBackgroundCheck) {
+                    showToast('Masukkan Link Folder Google Drive atau Folder ID terlebih dahulu!', 'warning');
+                }
+                return;
+            }
+
+            if (!apiKey) {
+                if (!isBackgroundCheck) {
+                    showToast('Masukkan Google Drive API Key untuk membaca isi folder secara otomatis, atau klik "Cara Buat API Key".', 'warning');
+                    document.getElementById('apiKeyGuideBox').classList.remove('hidden');
+                }
+                return;
+            }
+
+            // Save credentials in localStorage for convenience
+            try {
+                localStorage.setItem('framestream_gdrive_folder', rawFolder);
+                localStorage.setItem('framestream_gdrive_apikey', apiKey);
+            } catch (e) {}
+
+            if (!isBackgroundCheck) {
+                showLoadingOverlay(true, 'Menghubungi Folder Google Drive...');
+            }
+
+            try {
+                const query = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'video/' and trashed = false`);
+                const fields = encodeURIComponent('files(id, name, mimeType, size, createdTime)');
+                const endpoint = `https://www.googleapis.com/drive/v3/files?q=${query}&fields=${fields}&orderBy=createdTime desc&pageSize=50&key=${encodeURIComponent(apiKey)}`;
+
+                const response = await fetch(endpoint);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    const errMsg = data?.error?.message || 'Gagal mengakses Google Drive API.';
+                    throw new Error(errMsg);
+                }
+
+                const files = data.files || [];
+                if (files.length === 0) {
+                    showLoadingOverlay(false);
+                    if (!isBackgroundCheck) {
+                        showToast('Folder ditemukan, namun belum ada file video di dalamnya. Pastikan folder sudah di-share "Siapa saja yang memiliki link".', 'warning');
+                    }
+                    return;
+                }
+
+                // Map Google Drive files to direct media stream URLs
+                const fetchedVideos = files.map(file => ({
+                    id: file.id,
+                    driveFileId: file.id,
+                    name: file.name,
+                    url: `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&key=${encodeURIComponent(apiKey)}`,
+                    type: 'video',
+                    sourceLabel: 'Google Drive Folder'
+                }));
+
+                // Check if playlist changed (e.g., new video uploaded to Google Drive folder!)
+                const oldIds = playlist.map(v => v.id).join(',');
+                const newIds = fetchedVideos.map(v => v.id).join(',');
+
+                if (oldIds !== newIds) {
+                    const isNewAddition = isBackgroundCheck && fetchedVideos.length > playlist.length;
+                    playlist = fetchedVideos;
+
+                    document.getElementById('syncStatusText').textContent = `Terhubung GDrive (${playlist.length} Video)`;
+                    document.getElementById('manualRefreshDriveBtn').classList.remove('hidden');
+                    document.getElementById('manualRefreshDriveBtn').classList.add('flex');
+                    document.getElementById('playlistSourceSubtext').textContent = `Sinkronisasi Otomatis Aktif — Folder ID: ${folderId.substring(0, 10)}...`;
+
+                    if (isNewAddition) {
+                        showToast(`Video baru terdeteksi di Folder Google Drive! Memutar "${playlist[0].name}"`, 'success');
+                        playVideoAtIndex(0);
+                    } else if (!isBackgroundCheck) {
+                        showToast(`Berhasil memuat ${playlist.length} video dari Folder Google Drive!`, 'success');
+                        playVideoAtIndex(0);
+                    } else {
+                        renderPlaylistUI();
+                    }
+                } else if (!isBackgroundCheck) {
+                    showLoadingOverlay(false);
+                    showToast(`Folder Google Drive sudah sinkron (${playlist.length} video).`, 'info');
+                }
+
+                updateAutoSyncTimer();
+            } catch (err) {
+                showLoadingOverlay(false);
+                if (!isBackgroundCheck) {
+                    showToast(`Gagal membaca folder: ${err.message}`, 'error');
+                }
+            }
+        }
+
+        function updateAutoSyncTimer() {
+            clearInterval(gdriveAutoSyncIntervalId);
+            const intervalMs = parseInt(document.getElementById('gdriveAutoSyncSelect').value, 10);
+            const rawFolder = document.getElementById('gdriveFolderInput').value.trim();
+            const apiKey = document.getElementById('gdriveApiKeyInput').value.trim();
+
+            if (intervalMs > 0 && rawFolder && apiKey) {
+                gdriveAutoSyncIntervalId = setInterval(() => {
+                    syncGoogleDriveFolder(true);
+                }, intervalMs);
+            }
+        }
+
+        // Simulation mode so user can see how Google Drive Folder Auto-Sync behaves immediately
+        function simulateGoogleDriveFolderSync() {
+            playlist = [
+                {
+                    id: 'gdrive-sim-1',
+                    name: 'Opening_Event_Bumper_1080p.mp4',
+                    url: '',
+                    sceneTheme: 'gala',
+                    type: 'canvas-stream',
+                    sourceLabel: 'GDrive Folder (Simulasi)'
+                },
+                {
+                    id: 'gdrive-sim-2',
+                    name: 'Company_Profile_Landscape_2026.mp4',
+                    url: '',
+                    sceneTheme: 'ocean',
+                    type: 'canvas-stream',
+                    sourceLabel: 'GDrive Folder (Simulasi)'
+                },
+                {
+                    id: 'gdrive-sim-3',
+                    name: 'Dokumentasi_Drone_Landscape.mp4',
+                    url: '',
+                    sceneTheme: 'aurora',
+                    type: 'canvas-stream',
+                    sourceLabel: 'GDrive Folder (Simulasi)'
+                }
+            ];
+
+            document.getElementById('syncStatusText').textContent = 'Simulasi Folder GDrive Aktif';
+            document.getElementById('playlistSourceSubtext').textContent = 'Mode Simulasi Folder Google Drive (3 Video Landscape)';
+            playVideoAtIndex(0);
+            showToast('Simulasi Folder Google Drive aktif! Video otomatis berputar di dalam frame.', 'success');
+        }
+
+        // ==========================================
+        // 5. TAB 2: GOOGLE DRIVE SHARE LINKS / MP4 URLS
+        // ==========================================
+        function loadVideosFromLinks() {
+            const rawText = document.getElementById('gdriveLinksTextarea').value.trim();
+            if (!rawText) {
+                showToast('Tempel minimal 1 link video Google Drive atau link .mp4 terlebih dahulu!', 'warning');
+                return;
+            }
+
+            const lines = rawText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            const newPlaylist = [];
+
+            lines.forEach((line, idx) => {
+                const driveFileId = extractDriveFileId(line);
+                if (driveFileId) {
+                    newPlaylist.push({
+                        id: `link-gdrive-${idx}-${driveFileId}`,
+                        driveFileId: driveFileId,
+                        name: `Video Google Drive #${idx + 1} (${driveFileId.substring(0, 6)}...)`,
+                        url: `https://drive.google.com/file/d/${driveFileId}/preview`,
+                        type: 'gdrive-iframe',
+                        sourceLabel: 'Link GDrive'
+                    });
+                } else {
+                    const cleanName = line.split('/').pop().split('?')[0] || `Video Link #${idx + 1}.mp4`;
+                    newPlaylist.push({
+                        id: `link-mp4-${idx}`,
+                        name: decodeURIComponent(cleanName),
+                        url: line,
+                        type: 'video',
+                        sourceLabel: 'Direct URL'
+                    });
+                }
+            });
+
+            if (newPlaylist.length === 0) {
+                showToast('Tidak ada link valid yang ditemukan.', 'warning');
+                return;
+            }
+
+            clearInterval(gdriveAutoSyncIntervalId);
+            playlist = newPlaylist;
+            document.getElementById('syncStatusText').textContent = `Daftar Link (${playlist.length} Video)`;
+            document.getElementById('playlistSourceSubtext').textContent = `Memutar dari Daftar Link Google Drive / URL (${playlist.length} Video)`;
+            playVideoAtIndex(0);
+            showToast(`Berhasil memuat ${playlist.length} link video ke dalam frame!`, 'success');
+        }
+
+        // ==========================================
+        // 6. TAB 3: LOCAL VIDEO FILES / LOCAL DRIVE FOLDER
+        // ==========================================
+        function handleLocalVideoFiles(event) {
+            const files = Array.from(event.target.files || []);
+            const videoFiles = files.filter(f => f.type.startsWith('video/') || /\.(mp4|webm|mov|ogg|mkv)$/i.test(f.name));
+
+            if (videoFiles.length === 0) {
+                showToast('Tidak ditemukan file video (.mp4 / .webm) pada pilihan Anda.', 'warning');
+                return;
+            }
+
+            // Sort alphabetically by filename
+            videoFiles.sort((a, b) => a.name.localeCompare(b.name));
+
+            clearInterval(gdriveAutoSyncIntervalId);
+            playlist = videoFiles.map((file, idx) => ({
+                id: `local-${idx}-${Date.now()}`,
+                name: file.name,
+                url: URL.createObjectURL(file),
+                type: 'video',
+                sourceLabel: 'Folder Lokal'
+            }));
+
+            document.getElementById('syncStatusText').textContent = `Folder Lokal (${playlist.length} Video)`;
+            document.getElementById('playlistSourceSubtext').textContent = `Memutar langsung dari Folder Perangkat (${playlist.length} Video)`;
+            playVideoAtIndex(0);
+            showToast(`Berhasil memuat ${playlist.length} video dan langsung berjalan otomatis!`, 'success');
+        }
+
+        function loadDefaultSampleVideos() {
+            clearInterval(gdriveAutoSyncIntervalId);
+            playlist = [...DEFAULT_SAMPLE_VIDEOS];
+            document.getElementById('syncStatusText').textContent = 'Mode: Playlist Bawaan';
+            document.getElementById('playlistSourceSubtext').textContent = 'Video berputar berurutan dan otomatis mengulang dari awal (Looping)';
+            playVideoAtIndex(0);
+            showToast('Playlist dikembalikan ke video contoh bawaan.', 'info');
+        }
+
+        // ==========================================
+        // 7. PLAYLIST UI & CONTROLS
+        // ==========================================
+        function renderPlaylistUI() {
+            const container = document.getElementById('playlistContainer');
+            document.getElementById('totalVideosPill').textContent = `${playlist.length} Video`;
+
+            if (playlist.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-6 text-xs text-slate-500">
+                        Belum ada video dalam antrean.
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = playlist.map((item, idx) => {
+                const isActive = idx === currentIndex;
+                return `
+                    <div
+                        onclick="playVideoAtIndex(${idx})"
+                        class="group flex items-center justify-between gap-3 p-2.5 rounded-xl border cursor-pointer transition ${
+                            isActive
+                                ? 'bg-indigo-600/15 border-indigo-500/40 text-white'
+                                : 'bg-slate-950/60 border-slate-800/80 text-slate-300 hover:bg-slate-800/60'
+                        }"
+                    >
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                                isActive ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 group-hover:text-white'
+                            }">
+                                ${isActive ? '<i class="fa-solid fa-play text-[10px] animate-pulse"></i>' : idx + 1}
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-xs font-semibold truncate ${isActive ? 'text-indigo-200' : 'text-slate-200'}">
+                                    ${item.name}
+                                </p>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">
+                                        ${item.sourceLabel || 'Video'}
+                                    </span>
+                                    ${isActive ? '<span class="text-[10px] text-emerald-400 font-medium">● Sedang Diputar</span>' : ''}
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onclick="removeVideoFromPlaylist(event, ${idx})"
+                            title="Hapus dari antrean"
+                            class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition"
+                        >
+                            <i class="fa-solid fa-trash-can text-xs"></i>
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function removeVideoFromPlaylist(event, index) {
+            event.stopPropagation();
+            if (playlist.length <= 1) {
+                showToast('Minimal harus ada 1 video di dalam daftar putar.', 'warning');
+                return;
+            }
+            playlist.splice(index, 1);
+            if (currentIndex >= playlist.length) {
+                currentIndex = 0;
+            }
+            playVideoAtIndex(currentIndex);
+        }
+
+        // ==========================================
+        // 8. DISPLAY SETTINGS (FULLSCREEN, SCALE, TABS)
+        // ==========================================
+        function switchSourceTab(tabKey) {
+            ['folder', 'links', 'local'].forEach(key => {
+                const btn = document.getElementById(`tabBtn-${key}`);
+                const panel = document.getElementById(`tabPanel-${key}`);
+                if (key === tabKey) {
+                    btn.className = 'source-tab-btn py-2 px-2 rounded-lg text-xs font-semibold bg-indigo-600 text-white transition flex items-center justify-center gap-1.5';
+                    panel.classList.remove('hidden');
+                } else {
+                    btn.className = 'source-tab-btn py-2 px-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white transition flex items-center justify-center gap-1.5';
+                    panel.classList.add('hidden');
+                }
+            });
+        }
+
+        function toggleApiKeyGuide() {
+            const box = document.getElementById('apiKeyGuideBox');
+            box.classList.toggle('hidden');
+        }
+
+        function changeVideoFit(fitClass) {
+            mainVideoPlayer.classList.remove('object-cover', 'object-contain', 'object-fill');
+            mainVideoPlayer.classList.add(fitClass);
+        }
+
+        function changeFrameFit(fitClass) {
+            frameOverlayImg.classList.remove('object-fill', 'object-contain', 'object-cover');
+            frameOverlayImg.classList.add(fitClass);
+        }
+
+        function toggleRunningText() {
+            isRunningTextVisible = !isRunningTextVisible;
+            const bar = document.getElementById('runningTextBar');
+            const btn = document.getElementById('toggleRunningTextBtn');
+            if (isRunningTextVisible) {
+                bar.classList.remove('hidden');
+                btn.innerHTML = `<i class="fa-solid fa-scroll text-emerald-400"></i><span>Teks Berjalan: On</span>`;
+            } else {
+                bar.classList.add('hidden');
+                btn.innerHTML = `<i class="fa-solid fa-scroll text-indigo-400"></i><span>Teks Berjalan: Off</span>`;
+            }
+        }
+
+        // Fullscreen / Kiosk Mode with fallback for restricted iFrames
+        function toggleFullscreenStage() {
+            const isCurrentlyKiosk = stageContainer.classList.contains('kiosk-active') || document.fullscreenElement === stageContainer;
+
+            if (!isCurrentlyKiosk) {
+                if (stageContainer.requestFullscreen) {
+                    stageContainer.requestFullscreen().catch(() => {
+                        // Fallback CSS Fullscreen Kiosk Mode
+                        enableCssKioskMode(true);
+                    });
+                } else {
+                    enableCssKioskMode(true);
+                }
+                enableCssKioskMode(true);
+            } else {
+                if (document.fullscreenElement && document.exitFullscreen) {
+                    document.exitFullscreen().catch(() => {});
+                }
+                enableCssKioskMode(false);
+            }
+        }
+
+        function enableCssKioskMode(enable) {
+            const icon = document.getElementById('stageFullscreenIcon');
+            const text = document.getElementById('stageFullscreenText');
+            if (enable) {
+                stageContainer.classList.add('kiosk-active');
+                icon.className = 'fa-solid fa-compress';
+                text.textContent = 'Keluar Fullscreen';
+                showToast('Mode Layar Penuh (Kiosk 16:9) aktif. Tekan ESC atau tombol di kanan bawah untuk keluar.', 'info');
+            } else {
+                stageContainer.classList.remove('kiosk-active');
+                icon.className = 'fa-solid fa-expand';
+                text.textContent = 'Fullscreen';
+            }
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                enableCssKioskMode(false);
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && stageContainer.classList.contains('kiosk-active')) {
+                enableCssKioskMode(false);
+            }
+        });
+
+        // Show floating controls briefly when mouse moves over stage
+        stageContainer.addEventListener('mousemove', () => {
+            stageContainer.classList.add('show-controls');
+            clearTimeout(idleMouseTimeoutId);
+            idleMouseTimeoutId = setTimeout(() => {
+                stageContainer.classList.remove('show-controls');
+            }, 2200);
+        });
+
+        // Drag and Drop support on Frame Upload Zone
+        const frameDropZone = document.getElementById('frameDropZone');
+        ['dragenter', 'dragover'].forEach(evtName => {
+            frameDropZone.addEventListener(evtName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                frameDropZone.classList.add('border-emerald-400', 'bg-slate-900');
+            });
+        });
+        ['dragleave', 'drop'].forEach(evtName => {
+            frameDropZone.addEventListener(evtName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                frameDropZone.classList.remove('border-emerald-400', 'bg-slate-900');
+            });
+        });
+        frameDropZone.addEventListener('drop', (e) => {
+            const droppedFiles = e.dataTransfer?.files;
+            if (droppedFiles && droppedFiles.length > 0) {
+                document.getElementById('frameFileInput').files = droppedFiles;
+                handleFrameUpload({ target: { files: droppedFiles } });
+            }
+        });
+
+        // ==========================================
+        // 9. TOAST NOTIFICATION HELPER (NO ALERT)
+        // ==========================================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+
+            const styles = {
+                success: 'bg-slate-900/95 border-emerald-500/40 text-emerald-200',
+                warning: 'bg-slate-900/95 border-amber-500/40 text-amber-200',
+                error: 'bg-slate-900/95 border-rose-500/40 text-rose-200',
+                info: 'bg-slate-900/95 border-indigo-500/40 text-indigo-200'
+            };
+
+            const icons = {
+                success: 'fa-solid fa-circle-check text-emerald-400',
+                warning: 'fa-solid fa-triangle-exclamation text-amber-400',
+                error: 'fa-solid fa-circle-xmark text-rose-400',
+                info: 'fa-solid fa-circle-info text-indigo-400'
+            };
+
+            toast.className = `pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-md text-xs font-medium transition-all duration-300 ${styles[type] || styles.info}`;
+            toast.innerHTML = `
+                <i class="${icons[type] || icons.info} text-base shrink-0"></i>
+                <span class="flex-1 leading-relaxed">${message}</span>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3800);
+        }
+
+        // ==========================================
+        // 10. INITIALIZE ON PAGE LOAD
+        // ==========================================
+        window.addEventListener('DOMContentLoaded', () => {
+            // 1. Restore saved custom frame if available, otherwise apply default 'event' 16:9 frame
+            const savedFrame = localStorage.getItem('framestream_custom_frame');
+            const savedMeta = localStorage.getItem('framestream_custom_frame_meta') || 'Custom';
+            if (savedFrame) {
+                frameOverlayImg.src = savedFrame;
+                frameThumbnailPreview.src = savedFrame;
+                activePresetName = 'custom';
+                document.getElementById('clearSavedFrameBtn').classList.remove('hidden');
+                document.getElementById('frameActiveBadge').innerHTML = `
+                    <i class="fa-solid fa-image"></i>
+                    <span>Frame Tersimpan (${savedMeta})</span>
+                `;
+            } else {
+                applyPresetFrame('event');
+            }
+
+            // 2. Restore saved Google Drive Folder & API Key if available
+            const savedFolder = localStorage.getItem('framestream_gdrive_folder');
+            const savedApiKey = localStorage.getItem('framestream_gdrive_apikey');
+            if (savedFolder) document.getElementById('gdriveFolderInput').value = savedFolder;
+            if (savedApiKey) document.getElementById('gdriveApiKeyInput').value = savedApiKey;
+
+            // 3. Start playing default playlist immediately
+            playVideoAtIndex(0);
+        });
+    </script>
+</body>
+</html>
